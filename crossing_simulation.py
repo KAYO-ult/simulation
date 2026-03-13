@@ -39,7 +39,7 @@ from typing import List, Dict, Optional, Tuple
 # ══════════════════════════════════════════════════════════════════════════════
 # LAYOUT CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-W, H        = 900, 900          # canvas size
+W, H        = 500, 500          # canvas size
 CX, CY      = W // 2, H // 2    # center of intersection
 ROAD_W      = 200                # total road width (4 lanes)
 LANE_W      = 40                 # width per lane
@@ -325,16 +325,20 @@ class Vehicle:
       - Right turn: upon entering the intersection box, curves 90° right.
     """
 
-    def __init__(self, direction: str, lane: Lane, move_type: MoveType):
+    def __init__(self, direction: str, lane: Lane, move_type: MoveType, priority: bool = False):
         global _uid
         _uid += 1
         self.uid        = _uid
         self.direction  = direction
         self.lane_obj   = lane
         self.move_type  = move_type
+        self.priority   = priority  # Priority vehicle (e.g., ambulance)
         self.speed      = random.uniform(1.8, 2.8)
         self.base_color = DIR_COLOR[direction]
-        self.color      = self._vary(self.base_color)
+        if priority:
+            self.color = "#ff0000"  # Red for priority vehicles
+        else:
+            self.color      = self._vary(self.base_color)
         self.active     = True
         self.cleared    = False
         self.turning    = False      # set once the car enters the box
@@ -415,6 +419,10 @@ class Vehicle:
         return False
 
     def _is_blocked(self, others: list) -> bool:
+        # Priority vehicles never wait for other traffic
+        if self.priority:
+            return False
+            
         # While actively turning on a Bezier path, skip blocking
         if self.turning:
             return False
@@ -527,20 +535,21 @@ class Vehicle:
             should_stop = False
             sig = self.signal
 
-            if not sig.can_go() and not sig.is_yellow():
-                should_stop = True
-            elif sig.is_yellow() and not self._front_past_stop_line():
-                should_stop = True
+            if not self.priority:  # Priority vehicles completely ignore signals
+                if not sig.can_go() and not sig.is_yellow():
+                    should_stop = True
+                elif sig.is_yellow() and not self._front_past_stop_line():
+                    should_stop = True
 
             if should_stop and self._approaching_stop():
                 return
 
-            # Yield to conflicting traffic inside box
+            # Yield to conflicting traffic inside box (ambulances never yield)
             conflict_inside = any(
                 c.direction in CONFLICT[self.direction] and c.in_intersection
                 for c in others if c is not self and c.active
             )
-            if conflict_inside and self._approaching_stop():
+            if conflict_inside and self._approaching_stop() and not self.priority:
                 return
 
         # ── Follow-the-leader ─────────────────────────────────────────────
@@ -594,7 +603,7 @@ class Vehicle:
             self.active = False
 
     # ── draw ──────────────────────────────────────────────────────────────
-    def draw(self, cv: tk.Canvas):
+    def draw(self, cv: tk.Canvas, frame: int = 0):
         if not self.active:
             return
         x, y = self.x, self.y
@@ -638,6 +647,17 @@ class Vehicle:
             iy = y - hw * cos_h * 0.8 - hl * sin_h * 0.3
             cv.create_oval(ix - 2, iy - 2, ix + 2, iy + 2,
                           fill="#ffaa00", outline="", tags="car")
+
+        # Priority vehicle siren (flashing red/blue)
+        if self.priority:
+            # Flash every few frames
+            flash = (self.uid + frame) // 10 % 2
+            siren_color = "#ff0000" if flash else "#0000ff"
+            # Siren on roof
+            sx = x - hw * sin_h * 0.5
+            sy = y + hw * cos_h * 0.5
+            cv.create_oval(sx - 3, sy - 3, sx + 3, sy + 3,
+                          fill=siren_color, outline="", tags="car")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1076,7 +1096,9 @@ class Simulation:
                 for v in self.vehicles
             )
             if not too_close:
-                v = Vehicle(d, lane, move)
+                # Occasionally spawn priority vehicles (ambulances)
+                is_priority = random.random() < 0.15  # 15% chance for more frequent ambulances
+                v = Vehicle(d, lane, move, priority=is_priority)
                 self.vehicles.append(v)
                 lane.vehicles.append(v)
 
@@ -1105,7 +1127,7 @@ class Simulation:
         self.cv.delete("queue")
 
         for v in self.vehicles:
-            v.draw(self.cv)
+            v.draw(self.cv, self.frame)
         for p in self.pedestrians:
             p.draw(self.cv)
         self._draw_signals()
