@@ -1,14 +1,15 @@
 """
-4-Lane Intersection Traffic Signal Simulation
+4-Lane Intersection Traffic Signal Simulation (Indian Left-Hand Traffic)
 ==============================================
 A comprehensive, educational simulation of a standard 4-lane intersection
-(North, South, East, West approaches) with realistic traffic signal phasing.
+(North, South, East, West approaches) with realistic traffic signal phasing,
+modelled for Indian left-hand traffic (vehicles drive on the left side).
 
 Features:
   • Realistic multi-phase signal controller (NEMA-style phasing)
     – Straight (through) movement phases
-    – Protected left-turn phases
-    – Right-turn-on-red (permitted)
+    – Protected right-turn phases (right turns cross traffic in LHT)
+    – Left-turn-on-red (permitted)
     – Opposing traffic simultaneous green
     – Pedestrian crossing phases with walk / don't-walk signals
     – All-red clearance intervals between every phase
@@ -93,36 +94,36 @@ class PhaseSpec:
 # Default phase plan (NEMA dual-ring simplified to sequential)
 # Timing in frames at ~60 fps  (divide by 60 for real seconds)
 DEFAULT_PHASES = [
-    # Phase 1: N/S protected left turn
+    # Phase 1: N/S protected right turn (right turns cross traffic in LHT)
     PhaseSpec(
-        name="N/S Protected Left",
-        green_moves=[("N", MoveType.LEFT), ("S", MoveType.LEFT)],
+        name="N/S Protected Right",
+        green_moves=[("N", MoveType.RIGHT), ("S", MoveType.RIGHT)],
         green_time=120, yellow_time=45, allred_time=20,
         pedestrian=False,
     ),
-    # Phase 2: N/S through + right
+    # Phase 2: N/S through + left
     PhaseSpec(
-        name="N/S Through + Right",
+        name="N/S Through + Left",
         green_moves=[
             ("N", MoveType.STRAIGHT), ("S", MoveType.STRAIGHT),
-            ("N", MoveType.RIGHT), ("S", MoveType.RIGHT),
+            ("N", MoveType.LEFT), ("S", MoveType.LEFT),
         ],
         green_time=240, yellow_time=50, allred_time=20,
         pedestrian=True, ped_directions=["E", "W"],  # E/W crosswalks parallel to N/S
     ),
-    # Phase 3: E/W protected left turn
+    # Phase 3: E/W protected right turn
     PhaseSpec(
-        name="E/W Protected Left",
-        green_moves=[("E", MoveType.LEFT), ("W", MoveType.LEFT)],
+        name="E/W Protected Right",
+        green_moves=[("E", MoveType.RIGHT), ("W", MoveType.RIGHT)],
         green_time=120, yellow_time=45, allred_time=20,
         pedestrian=False,
     ),
-    # Phase 4: E/W through + right
+    # Phase 4: E/W through + left
     PhaseSpec(
-        name="E/W Through + Right",
+        name="E/W Through + Left",
         green_moves=[
             ("E", MoveType.STRAIGHT), ("W", MoveType.STRAIGHT),
-            ("E", MoveType.RIGHT), ("W", MoveType.RIGHT),
+            ("E", MoveType.LEFT), ("W", MoveType.LEFT),
         ],
         green_time=240, yellow_time=50, allred_time=20,
         pedestrian=True, ped_directions=["N", "S"],
@@ -216,8 +217,8 @@ class IntersectionController:
         for (d, m) in phase.green_moves:
             self.signals[(d, m)].set(self.sub)  # "green" or "yellow"
 
-        # Right-turn-on-red: if a direction's through is red AND cross traffic
-        # is not going, allow right turn (permitted right on red).
+        # Left-turn-on-red: in LHT, left turns (easy turns) may be
+        # permitted when cross traffic is not going.
         # Simplified: only during the cross-direction's all-red or own green.
 
         # Pedestrian signals
@@ -269,9 +270,9 @@ class Lane:
     Represents a single lane on one approach.
     Tracks its queue of vehicles and the applicable signal.
 
-    Lane indices (per approach):
-      lane 0  = left-turn / through (inner lane)
-      lane 1  = through / right-turn (outer lane)
+    Lane indices (per approach, left-hand traffic):
+      lane 0  = right-turn / through (inner lane)
+      lane 1  = through / left-turn (outer lane)
     """
 
     def __init__(self, direction: str, lane_idx: int, controller: IntersectionController):
@@ -282,11 +283,11 @@ class Lane:
 
         # Determine primary movement for this lane
         if lane_idx == 0:
-            self.primary_move = MoveType.LEFT      # inner lane serves left turns
+            self.primary_move = MoveType.RIGHT     # inner lane serves right turns
             self.alt_move     = MoveType.STRAIGHT   # also through traffic
         else:
             self.primary_move = MoveType.STRAIGHT   # outer lane serves through
-            self.alt_move     = MoveType.RIGHT      # also right turns
+            self.alt_move     = MoveType.LEFT        # also left turns
 
     @property
     def signal(self) -> TrafficSignal:
@@ -355,17 +356,18 @@ class Vehicle:
         offset = LANE_W // 2 + lane_idx * LANE_W
 
         # dx, dy: unit direction of travel before any turn
+        # Left-hand traffic: vehicles drive on the LEFT side of the road
         if direction == "N":
-            self.x, self.y = CX + offset, H + CAR_LEN
+            self.x, self.y = CX - offset, H + CAR_LEN
             self.dx, self.dy = 0, -1
         elif direction == "S":
-            self.x, self.y = CX - offset, -CAR_LEN
+            self.x, self.y = CX + offset, -CAR_LEN
             self.dx, self.dy = 0, 1
         elif direction == "E":
-            self.x, self.y = -CAR_LEN, CY + offset
+            self.x, self.y = -CAR_LEN, CY - offset
             self.dx, self.dy = 1, 0
         elif direction == "W":
-            self.x, self.y = W + CAR_LEN, CY - offset
+            self.x, self.y = W + CAR_LEN, CY + offset
             self.dx, self.dy = -1, 0
 
         # Store entry coords for turn calculations
@@ -461,11 +463,11 @@ class Vehicle:
           B = control point inside the intersection (shapes the curve)
           C = exit point on the opposite edge
 
-        Exit lanes (right-hand traffic):
-          Northbound exit  →  x > CX  (east half)
-          Southbound exit  →  x < CX  (west half)
-          Eastbound  exit  →  y > CY  (south half)
-          Westbound  exit  →  y < CY  (north half)
+        Exit lanes (left-hand traffic – India):
+          Northbound exit  →  x < CX  (west half)
+          Southbound exit  →  x > CX  (east half)
+          Eastbound  exit  →  y < CY  (north half)
+          Westbound  exit  →  y > CY  (south half)
         """
         self.turning = True
         self.turn_progress = 0.0
@@ -478,40 +480,42 @@ class Vehicle:
         OUT_OFF = LANE_W // 2 + LANE_W       # 60
 
         if self.move_type == MoveType.LEFT:
-            # Left turns exit into the inner lane of the cross road
-            if self.direction == "N":      # N → West
-                bx, by = CX + IN_OFF, CY - 30
-                cx, cy = CX - RW, CY - IN_OFF
+            # Left turns are tight/easy in LHT (don't cross oncoming traffic)
+            # Exit into the outer lane of the cross road
+            if self.direction == "N":      # N → West (tight turn near SW corner)
+                bx, by = CX - OUT_OFF, CY + OUT_OFF
+                cx, cy = CX - RW, CY + OUT_OFF
                 self._exit_dx, self._exit_dy = -1, 0
-            elif self.direction == "S":    # S → East
-                bx, by = CX - IN_OFF, CY + 30
-                cx, cy = CX + RW, CY + IN_OFF
+            elif self.direction == "S":    # S → East (tight turn near NE corner)
+                bx, by = CX + OUT_OFF, CY - OUT_OFF
+                cx, cy = CX + RW, CY - OUT_OFF
                 self._exit_dx, self._exit_dy = 1, 0
-            elif self.direction == "E":    # E → North
-                bx, by = CX + 30, CY + IN_OFF
-                cx, cy = CX + IN_OFF, CY - RW
+            elif self.direction == "E":    # E → North (tight turn near NW corner)
+                bx, by = CX - OUT_OFF, CY - OUT_OFF
+                cx, cy = CX - OUT_OFF, CY - RW
                 self._exit_dx, self._exit_dy = 0, -1
-            elif self.direction == "W":    # W → South
-                bx, by = CX - 30, CY - IN_OFF
-                cx, cy = CX - IN_OFF, CY + RW
+            elif self.direction == "W":    # W → South (tight turn near SE corner)
+                bx, by = CX + OUT_OFF, CY + OUT_OFF
+                cx, cy = CX + OUT_OFF, CY + RW
                 self._exit_dx, self._exit_dy = 0, 1
         else:  # RIGHT
-            # Right turns exit into the outer lane of the cross road
-            if self.direction == "N":      # N → East (tight turn near SE corner)
-                bx, by = CX + OUT_OFF, CY + OUT_OFF
-                cx, cy = CX + RW, CY + OUT_OFF
+            # Right turns are wide/crossing in LHT (cross oncoming traffic)
+            # Exit into the inner lane of the cross road
+            if self.direction == "N":      # N → East (wide crossing turn)
+                bx, by = CX - IN_OFF, CY - 30
+                cx, cy = CX + RW, CY - IN_OFF
                 self._exit_dx, self._exit_dy = 1, 0
-            elif self.direction == "S":    # S → West (tight turn near NW corner)
-                bx, by = CX - OUT_OFF, CY - OUT_OFF
-                cx, cy = CX - RW, CY - OUT_OFF
+            elif self.direction == "S":    # S → West (wide crossing turn)
+                bx, by = CX + IN_OFF, CY + 30
+                cx, cy = CX - RW, CY + IN_OFF
                 self._exit_dx, self._exit_dy = -1, 0
-            elif self.direction == "E":    # E → South (tight turn near SW corner)
-                bx, by = CX - OUT_OFF, CY + OUT_OFF
-                cx, cy = CX - OUT_OFF, CY + RW
+            elif self.direction == "E":    # E → South (wide crossing turn)
+                bx, by = CX + 30, CY - IN_OFF
+                cx, cy = CX + IN_OFF, CY + RW
                 self._exit_dx, self._exit_dy = 0, 1
-            elif self.direction == "W":    # W → North (tight turn near NE corner)
-                bx, by = CX + OUT_OFF, CY - OUT_OFF
-                cx, cy = CX + OUT_OFF, CY - RW
+            elif self.direction == "W":    # W → North (wide crossing turn)
+                bx, by = CX - 30, CY + IN_OFF
+                cx, cy = CX - IN_OFF, CY - RW
                 self._exit_dx, self._exit_dy = 0, -1
 
         self._turn_a = (ax, ay)
@@ -956,34 +960,34 @@ class Simulation:
         off0 = LANE_W // 2          # inner lane offset
         off1 = LANE_W // 2 + LANE_W  # outer lane offset
 
-        # N approach (coming from bottom going up): arrows above stop line area
-        # Inner lane (lane 0) = left + through, Outer lane (lane 1) = through + right
+        # N approach (coming from bottom going up, on WEST side in LHT):
+        # Inner lane (lane 0) = straight + right, Outer lane (lane 1) = straight + left
         y_arr = CY + RW + 60
-        # Left arrow (lane 0)
-        cv.create_text(CX + off0, y_arr, text="↑←", font=("Consolas", 10, "bold"),
+        # Inner lane (right turn + through)
+        cv.create_text(CX - off0, y_arr, text="↑→", font=("Consolas", 10, "bold"),
                       fill=arrow_color, tags="static")
-        cv.create_text(CX + off1, y_arr, text="↑→", font=("Consolas", 10, "bold"),
+        cv.create_text(CX - off1, y_arr, text="↑←", font=("Consolas", 10, "bold"),
                       fill=arrow_color, tags="static")
 
-        # S approach
+        # S approach (on EAST side in LHT)
         y_arr = CY - RW - 60
-        cv.create_text(CX - off0, y_arr, text="↓←", font=("Consolas", 10, "bold"),
+        cv.create_text(CX + off0, y_arr, text="↓←", font=("Consolas", 10, "bold"),
                       fill=arrow_color, tags="static")
-        cv.create_text(CX - off1, y_arr, text="↓→", font=("Consolas", 10, "bold"),
+        cv.create_text(CX + off1, y_arr, text="↓→", font=("Consolas", 10, "bold"),
                       fill=arrow_color, tags="static")
 
-        # E approach
+        # E approach (on NORTH side in LHT)
         x_arr = CX - RW - 60
-        cv.create_text(x_arr, CY + off0, text="→\n↓", font=("Consolas", 9, "bold"),
+        cv.create_text(x_arr, CY - off0, text="→\n↓", font=("Consolas", 9, "bold"),
                       fill=arrow_color, tags="static")
-        cv.create_text(x_arr, CY + off1, text="→\n↑", font=("Consolas", 9, "bold"),
+        cv.create_text(x_arr, CY - off1, text="→\n↑", font=("Consolas", 9, "bold"),
                       fill=arrow_color, tags="static")
 
-        # W approach
+        # W approach (on SOUTH side in LHT)
         x_arr = CX + RW + 60
-        cv.create_text(x_arr, CY - off0, text="←\n↑", font=("Consolas", 9, "bold"),
+        cv.create_text(x_arr, CY + off0, text="←\n↑", font=("Consolas", 9, "bold"),
                       fill=arrow_color, tags="static")
-        cv.create_text(x_arr, CY - off1, text="←\n↓", font=("Consolas", 9, "bold"),
+        cv.create_text(x_arr, CY + off1, text="←\n↓", font=("Consolas", 9, "bold"),
                       fill=arrow_color, tags="static")
 
     # ══════════════════════════════════════════════════════════════════════
@@ -1011,7 +1015,7 @@ class Simulation:
 
             # Three lights: through signal
             through_sig = ctrl.signal_for(d, MoveType.STRAIGHT)
-            left_sig    = ctrl.signal_for(d, MoveType.LEFT)
+            right_sig   = ctrl.signal_for(d, MoveType.RIGHT)
 
             for i, phase in enumerate(["red", "yellow", "green"]):
                 by = ly + 5 + i * 16
@@ -1027,15 +1031,15 @@ class Simulation:
                 cv.create_oval(cx_l - 5, by + 1, cx_l + 5, by + 9,
                               fill=fill_t, outline="#000", tags="light")
 
-            # Left arrow indicator (left half) – just green/off
-            left_col = LIGHT_GRN_C if left_sig.can_go() else (
-                LIGHT_YEL_C if left_sig.is_yellow() else LIGHT_OFF_C)
+            # Right arrow indicator (left half) – just green/off
+            right_col = LIGHT_GRN_C if right_sig.can_go() else (
+                LIGHT_YEL_C if right_sig.is_yellow() else LIGHT_OFF_C)
             arr_cx = lx + bw // 2 - 8
             arr_cy = ly + bh // 2
             cv.create_oval(arr_cx - 5, arr_cy - 5, arr_cx + 5, arr_cy + 5,
-                          fill=left_col, outline="#000", tags="light")
-            if left_sig.can_go() or left_sig.is_yellow():
-                cv.create_text(arr_cx, arr_cy, text="←", font=("Consolas", 7, "bold"),
+                          fill=right_col, outline="#000", tags="light")
+            if right_sig.can_go() or right_sig.is_yellow():
+                cv.create_text(arr_cx, arr_cy, text="→", font=("Consolas", 7, "bold"),
                               fill="#000", tags="light")
 
             # Direction label
@@ -1085,9 +1089,9 @@ class Simulation:
             # Decide movement type based on lane
             r = random.random()
             if lane_idx == 0:       # inner lane
-                move = MoveType.LEFT if r < 0.20 else MoveType.STRAIGHT
-            else:                   # outer lane
                 move = MoveType.RIGHT if r < 0.20 else MoveType.STRAIGHT
+            else:                   # outer lane
+                move = MoveType.LEFT if r < 0.20 else MoveType.STRAIGHT
 
             # Don't spawn on top of existing vehicles
             too_close = any(
